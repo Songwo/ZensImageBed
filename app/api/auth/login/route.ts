@@ -2,6 +2,8 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createSessionToken, sessionCookieName } from "@/lib/auth";
 
+export const runtime = "edge";
+
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null) as { password?: string } | null;
   const password = body?.password;

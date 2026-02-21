@@ -2,6 +2,8 @@ import { z } from "zod";
 import { NextResponse } from "next/server";
 import { deleteImages } from "@/lib/r2";
 
+export const runtime = "edge";
+
 const schema = z.object({
   keys: z.array(z.string().min(1)).min(1).max(100)
 });

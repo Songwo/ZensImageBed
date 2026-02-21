@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getIsAuthed } from "@/lib/auth";
 import { GalleryPanel } from "@/components/gallery-panel";
 
+export const runtime = "edge";
+
 export default async function GalleryPage() {
   const authed = await getIsAuthed();
   if (!authed) redirect("/login");

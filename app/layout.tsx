@@ -6,6 +6,7 @@ import { Toaster } from "sonner";
 
 const heading = Space_Grotesk({ subsets: ["latin"], variable: "--font-heading" });
 const body = Manrope({ subsets: ["latin"], variable: "--font-body" });
+export const runtime = "edge";
 
 export const metadata: Metadata = {
   title: {

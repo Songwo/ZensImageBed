@@ -1,8 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { NextResponse } from "next/server";
 import { createPresignedPutUrl } from "@/lib/r2";
 import { checkRateLimit } from "@/lib/rate-limit";
+
+export const runtime = "edge";
 
 const schema = z.object({
   files: z.array(
@@ -46,8 +47,8 @@ export async function POST(req: Request) {
       const cleanedFolder = file.folder?.trim().replace(/^\/+|\/+$/g, "");
       const folder = cleanedFolder ? cleanedFolder : undefined;
       const key = folder
-        ? `${datePrefix}/${folder}/${randomUUID()}-${sanitized}`
-        : `${datePrefix}/${randomUUID()}-${sanitized}`;
+        ? `${datePrefix}/${folder}/${crypto.randomUUID()}-${sanitized}`
+        : `${datePrefix}/${crypto.randomUUID()}-${sanitized}`;
 
       const signed = await createPresignedPutUrl({
         key,

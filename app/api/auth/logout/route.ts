@@ -2,6 +2,8 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { sessionCookieName } from "@/lib/auth";
 
+export const runtime = "edge";
+
 export async function POST() {
   (await cookies()).set({
     name: sessionCookieName,

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { loadImageOrder, saveImageOrderGroups } from "@/lib/order-store";
 
 export const dynamic = "force-dynamic";
+export const runtime = "edge";
 
 const saveSchema = z.object({
   groups: z.object({

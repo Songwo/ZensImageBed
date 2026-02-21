@@ -2,6 +2,8 @@ import Link from "next/link";
 import { getIsAuthed } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
+export const runtime = "edge";
+
 export default async function HomePage() {
   const authed = await getIsAuthed();
 
