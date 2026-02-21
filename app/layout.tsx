@@ -13,16 +13,7 @@ export const metadata: Metadata = {
     default: "ZensImage | Cloudflare R2 图床",
     template: "%s | ZensImage"
   },
-  description: "一个高颜值、可私有管理、支持直传 Cloudflare R2 的现代图床应用。",
-  icons: {
-    icon: [
-      { url: "/icon.png", type: "image/png" },
-      { url: "/apple-icon.png", type: "image/png" }
-    ],
-    other: [{ rel: "shortcut icon", url: "/icon.png" }],
-    apple: "/apple-icon.png",
-    shortcut: "/icon.png"
-  }
+  description: "一个高颜值、可私有管理、支持直传 Cloudflare R2 的现代图床应用。"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
