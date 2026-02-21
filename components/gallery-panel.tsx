@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type SyntheticEvent } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, isThisWeek, isToday } from "date-fns";
 import { AnimatePresence, motion } from "framer-motion";
@@ -69,6 +69,13 @@ function buildThumb(url: string) {
   } catch {
     return url;
   }
+}
+
+function handleThumbError(event: SyntheticEvent<HTMLImageElement>, originalUrl: string) {
+  const img = event.currentTarget;
+  if (img.dataset.fallbackApplied === "1") return;
+  img.dataset.fallbackApplied = "1";
+  img.src = originalUrl;
 }
 
 function groupIdFromDate(date: string): GroupId {
@@ -369,7 +376,13 @@ export function GalleryPanel() {
                           onDragOverCapture={(e) => e.preventDefault()}
                           className={cn("group relative overflow-hidden rounded-2xl border bg-card", selectedState && "ring-2 ring-primary")}
                         >
-                          <img src={buildThumb(item.url)} alt={item.filename} className="h-52 w-full object-cover transition duration-300 group-hover:scale-105" loading="lazy" />
+                          <img
+                            src={buildThumb(item.url)}
+                            alt={item.filename}
+                            className="h-52 w-full object-cover transition duration-300 group-hover:scale-105"
+                            loading="lazy"
+                            onError={(e) => handleThumbError(e, item.url)}
+                          />
                           <div className="absolute left-2 top-2"><Checkbox checked={selectedState} onCheckedChange={(checked) => setSelected((prev) => checked ? [...new Set([...prev, item.key])] : prev.filter((k) => k !== item.key))} /></div>
                           <div className="space-y-1 p-3">
                             <p className="line-clamp-1 text-sm font-semibold">{item.filename}</p>
