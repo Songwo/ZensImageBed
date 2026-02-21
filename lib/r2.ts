@@ -1,41 +1,16 @@
+import { AwsClient } from "aws4fetch";
 import { normalizePublicDomain } from "@/lib/utils";
 
-type S3ObjectLike = {
-  Key?: string;
-  Size?: number;
-  LastModified?: Date;
+export type ListedImage = {
+  key: string;
+  url: string;
+  filename: string;
+  size: number;
+  uploadedAt: string;
+  tags: string[];
+  folder: string | null;
+  exif: string | null;
 };
-
-let domParserReady: Promise<void> | null = null;
-let s3SdkPromise: Promise<typeof import("@aws-sdk/client-s3")> | null = null;
-let presignerPromise: Promise<typeof import("@aws-sdk/s3-request-presigner")> | null = null;
-let clientPromise: Promise<unknown> | null = null;
-
-async function ensureDomParser() {
-  if (typeof globalThis.DOMParser !== "undefined") return;
-  if (!domParserReady) {
-    domParserReady = (async () => {
-      const { DOMParser } = await import("@xmldom/xmldom");
-      (globalThis as { DOMParser?: typeof DOMParser }).DOMParser = DOMParser;
-    })();
-  }
-  await domParserReady;
-}
-
-async function loadS3Sdk() {
-  await ensureDomParser();
-  if (!s3SdkPromise) {
-    s3SdkPromise = import("@aws-sdk/client-s3");
-  }
-  return s3SdkPromise;
-}
-
-async function loadPresigner() {
-  if (!presignerPromise) {
-    presignerPromise = import("@aws-sdk/s3-request-presigner");
-  }
-  return presignerPromise;
-}
 
 function required(name: string) {
   const value = process.env[name];
@@ -51,40 +26,59 @@ function getConfig() {
     accountId,
     bucketName: required("R2_BUCKET_NAME"),
     publicDomain: normalizePublicDomain(required("R2_PUBLIC_DOMAIN")),
-    credentials: {
-      accessKeyId: required("R2_ACCESS_KEY_ID"),
-      secretAccessKey: required("R2_SECRET_ACCESS_KEY")
-    }
+    accessKeyId: required("R2_ACCESS_KEY_ID"),
+    secretAccessKey: required("R2_SECRET_ACCESS_KEY")
   };
 }
 
-async function getClient() {
-  if (clientPromise) return clientPromise;
-  clientPromise = (async () => {
-    const { S3Client } = await loadS3Sdk();
-    const cfg = getConfig();
-    return new S3Client({
-      region: "auto",
-      endpoint: `https://${cfg.accountId}.r2.cloudflarestorage.com`,
-      credentials: cfg.credentials
-    });
-  })();
-  return clientPromise;
+let awsClient: AwsClient | null = null;
+function getAwsClient() {
+  if (awsClient) return awsClient;
+  const cfg = getConfig();
+  awsClient = new AwsClient({
+    accessKeyId: cfg.accessKeyId,
+    secretAccessKey: cfg.secretAccessKey,
+    service: "s3",
+    region: "auto"
+  });
+  return awsClient;
 }
 
-export type ListedImage = {
-  key: string;
-  url: string;
-  filename: string;
-  size: number;
-  uploadedAt: string;
-  tags: string[];
-  folder: string | null;
-  exif: string | null;
-};
+function endpointBase() {
+  const cfg = getConfig();
+  return `https://${cfg.accountId}.r2.cloudflarestorage.com/${cfg.bucketName}`;
+}
 
-function encodeMetadataValue(value: string) {
-  return encodeURIComponent(value);
+function encodeKey(key: string) {
+  return key
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+function decodeXml(value: string) {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+function pickTag(xml: string, tag: string) {
+  const m = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`));
+  return m?.[1] ? decodeXml(m[1]) : null;
+}
+
+function parseFolder(key: string) {
+  const chunks = key.split("/");
+  if (chunks.length <= 2) return null;
+  return chunks[1] ?? null;
+}
+
+function parseFilename(key: string) {
+  const chunks = key.split("/");
+  return chunks[chunks.length - 1] ?? key;
 }
 
 function decodeMetadataValue(value: string | undefined) {
@@ -96,34 +90,12 @@ function decodeMetadataValue(value: string | undefined) {
   }
 }
 
-function parseFilename(key: string) {
-  const chunks = key.split("/");
-  return chunks[chunks.length - 1] ?? key;
+function encodeMetadataValue(value: string) {
+  return encodeURIComponent(value);
 }
 
-function parseFolder(key: string) {
-  const chunks = key.split("/");
-  if (chunks.length <= 2) return null;
-  return chunks[1] ?? null;
-}
-
-function objectToListed(obj: S3ObjectLike, metadata: Record<string, string> | undefined, publicDomain: string): ListedImage {
-  const key = obj.Key ?? "";
-  const filename = decodeMetadataValue(metadata?.originalname) || parseFilename(key);
-  const tags = decodeMetadataValue(metadata?.tags)
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean);
-  return {
-    key,
-    url: `${publicDomain}/${key}`,
-    filename,
-    size: obj.Size ?? 0,
-    uploadedAt: (obj.LastModified ?? new Date()).toISOString(),
-    tags,
-    folder: decodeMetadataValue(metadata?.folder) || parseFolder(key),
-    exif: decodeMetadataValue(metadata?.exif) || null
-  };
+async function signedFetch(input: string, init?: RequestInit) {
+  return getAwsClient().fetch(input, init);
 }
 
 export async function createPresignedPutUrl(input: {
@@ -135,32 +107,26 @@ export async function createPresignedPutUrl(input: {
   originalName: string;
 }) {
   const cfg = getConfig();
-  const encodedTags = encodeMetadataValue(input.tags.join(","));
-  const encodedFolder = encodeMetadataValue(input.folder ?? "");
-  const encodedExif = encodeMetadataValue(input.exif ?? "");
-  const encodedOriginalName = encodeMetadataValue(input.originalName);
+  const keyPath = encodeKey(input.key);
+  const unsignedUrl = `${endpointBase()}/${keyPath}`;
 
-  const [{ PutObjectCommand }, { getSignedUrl }, r2] = await Promise.all([
-    loadS3Sdk(),
-    loadPresigner(),
-    getClient()
-  ]);
+  const headers: Record<string, string> = {
+    "content-type": input.contentType || "application/octet-stream",
+    "x-amz-meta-tags": encodeMetadataValue(input.tags.join(",")),
+    "x-amz-meta-folder": encodeMetadataValue(input.folder ?? ""),
+    "x-amz-meta-exif": encodeMetadataValue(input.exif ?? ""),
+    "x-amz-meta-originalname": encodeMetadataValue(input.originalName)
+  };
 
-  const command = new PutObjectCommand({
-    Bucket: cfg.bucketName,
-    Key: input.key,
-    ContentType: input.contentType,
-    Metadata: {
-      tags: encodedTags,
-      folder: encodedFolder,
-      exif: encodedExif,
-      originalName: encodedOriginalName
-    }
+  const signedReq = await getAwsClient().sign(unsignedUrl, {
+    method: "PUT",
+    headers,
+    aws: { signQuery: true, allHeaders: true }
   });
 
-  const signedUrl = await getSignedUrl(r2 as never, command, { expiresIn: 60 });
   return {
-    signedUrl,
+    signedUrl: signedReq.url,
+    signedHeaders: headers,
     publicUrl: `${cfg.publicDomain}/${input.key}`
   };
 }
@@ -172,24 +138,53 @@ export async function listImages(input: {
   tag?: string;
 }) {
   const cfg = getConfig();
-  const [{ ListObjectsV2Command, HeadObjectCommand }, r2] = await Promise.all([loadS3Sdk(), getClient()]);
-  const listed = await (r2 as { send: (cmd: unknown) => Promise<any> }).send(
-    new ListObjectsV2Command({
-      Bucket: cfg.bucketName,
-      MaxKeys: input.limit,
-      ContinuationToken: input.cursor
-    })
-  );
+  const query = new URLSearchParams({
+    "list-type": "2",
+    "max-keys": String(input.limit)
+  });
+  if (input.cursor) query.set("continuation-token", input.cursor);
 
-  const objects = (listed.Contents ?? []).filter((obj: S3ObjectLike) => Boolean(obj.Key));
+  const listRes = await signedFetch(`${endpointBase()}?${query.toString()}`, { method: "GET" });
+  if (!listRes.ok) {
+    throw new Error(`R2 list failed (${listRes.status})`);
+  }
+
+  const xml = await listRes.text();
+  const contents = Array.from(xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g));
 
   const enriched = await Promise.all(
-    objects.map(async (obj: S3ObjectLike) => {
-      const key = obj.Key!;
-      const head = await (r2 as { send: (cmd: unknown) => Promise<any> }).send(
-        new HeadObjectCommand({ Bucket: cfg.bucketName, Key: key })
-      );
-      return objectToListed(obj, head.Metadata, cfg.publicDomain);
+    contents.map(async (match) => {
+      const block = match[1] ?? "";
+      const key = pickTag(block, "Key") ?? "";
+      const size = Number(pickTag(block, "Size") ?? 0);
+      const uploadedAt = pickTag(block, "LastModified") ?? new Date().toISOString();
+
+      const headRes = await signedFetch(`${endpointBase()}/${encodeKey(key)}`, { method: "HEAD" });
+      const metadata = headRes.ok
+        ? {
+            tags: headRes.headers.get("x-amz-meta-tags") ?? "",
+            folder: headRes.headers.get("x-amz-meta-folder") ?? "",
+            exif: headRes.headers.get("x-amz-meta-exif") ?? "",
+            originalname: headRes.headers.get("x-amz-meta-originalname") ?? ""
+          }
+        : { tags: "", folder: "", exif: "", originalname: "" };
+
+      const filename = decodeMetadataValue(metadata.originalname) || parseFilename(key);
+      const tags = decodeMetadataValue(metadata.tags)
+        .split(",")
+        .map((v) => v.trim())
+        .filter(Boolean);
+
+      return {
+        key,
+        url: `${cfg.publicDomain}/${key}`,
+        filename,
+        size,
+        uploadedAt,
+        tags,
+        folder: decodeMetadataValue(metadata.folder) || parseFolder(key),
+        exif: decodeMetadataValue(metadata.exif) || null
+      } satisfies ListedImage;
     })
   );
 
@@ -197,73 +192,62 @@ export async function listImages(input: {
     const matchSearch =
       !input.search ||
       img.filename.toLowerCase().includes(input.search.toLowerCase()) ||
-      img.tags.some((t: string) => t.toLowerCase().includes(input.search!.toLowerCase()));
+      img.tags.some((t) => t.toLowerCase().includes(input.search!.toLowerCase()));
     const matchTag = !input.tag || img.tags.includes(input.tag);
     return matchSearch && matchTag;
   });
 
   filtered.sort((a, b) => +new Date(b.uploadedAt) - +new Date(a.uploadedAt));
 
+  const nextCursor = pickTag(xml, "NextContinuationToken");
+  const isTruncated = (pickTag(xml, "IsTruncated") ?? "false").toLowerCase() === "true";
+
   return {
     items: filtered,
-    nextCursor: listed.NextContinuationToken ?? null,
-    hasMore: Boolean(listed.IsTruncated)
+    nextCursor,
+    hasMore: isTruncated
   };
 }
 
 export async function deleteImages(keys: string[]) {
   if (!keys.length) return;
-  const cfg = getConfig();
-  const [{ DeleteObjectsCommand }, r2] = await Promise.all([loadS3Sdk(), getClient()]);
-  await (r2 as { send: (cmd: unknown) => Promise<any> }).send(
-    new DeleteObjectsCommand({
-      Bucket: cfg.bucketName,
-      Delete: {
-        Objects: keys.map((Key) => ({ Key })),
-        Quiet: true
-      }
-    })
-  );
-}
 
-async function streamToString(stream: unknown) {
-  if (typeof stream !== "object" || stream === null) return "";
-  const body = stream as {
-    transformToString?: () => Promise<string>;
-  };
-  if (body.transformToString) {
-    return body.transformToString();
+  const body = `<?xml version="1.0" encoding="UTF-8"?><Delete>${keys
+    .map((key) => `<Object><Key>${key.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</Key></Object>`)
+    .join("")}</Delete>`;
+
+  const res = await signedFetch(`${endpointBase()}?delete`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/xml"
+    },
+    body
+  });
+
+  if (!res.ok) {
+    throw new Error(`R2 delete failed (${res.status})`);
   }
-  return "";
 }
 
 export async function getObjectText(key: string) {
-  const cfg = getConfig();
-  const [{ GetObjectCommand }, r2] = await Promise.all([loadS3Sdk(), getClient()]);
-  try {
-    const object = await (r2 as { send: (cmd: unknown) => Promise<any> }).send(
-      new GetObjectCommand({
-        Bucket: cfg.bucketName,
-        Key: key
-      })
-    );
-    return streamToString(object.Body);
-  } catch (error) {
-    const err = error as { name?: string };
-    if (err.name === "NoSuchKey") return null;
-    throw error;
+  const res = await signedFetch(`${endpointBase()}/${encodeKey(key)}`, { method: "GET" });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`R2 get failed (${res.status})`);
   }
+  return res.text();
 }
 
 export async function putObjectText(key: string, value: string, contentType = "application/json") {
-  const cfg = getConfig();
-  const [{ PutObjectCommand }, r2] = await Promise.all([loadS3Sdk(), getClient()]);
-  await (r2 as { send: (cmd: unknown) => Promise<any> }).send(
-    new PutObjectCommand({
-      Bucket: cfg.bucketName,
-      Key: key,
-      Body: value,
-      ContentType: contentType
-    })
-  );
+  const res = await signedFetch(`${endpointBase()}/${encodeKey(key)}`, {
+    method: "PUT",
+    headers: {
+      "content-type": contentType
+    },
+    body: value
+  });
+
+  if (!res.ok) {
+    throw new Error(`R2 put failed (${res.status})`);
+  }
 }

@@ -33,10 +33,11 @@ function aiTagger(filename: string, exif?: string) {
   return Array.from(new Set([...raw.slice(0, 4), ...hints]));
 }
 
-function xhrUpload(url: string, file: File, onProgress: (value: number) => void) {
+function xhrUpload(url: string, file: File, headers: Record<string, string>, onProgress: (value: number) => void) {
   return new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
+    Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         onProgress(Math.round((event.loaded / event.total) * 100));
@@ -113,14 +114,14 @@ export function UploadPanel() {
     }
 
     const { items: signedItems } = await presignRes.json() as {
-      items: Array<{ signedUrl: string }>;
+      items: Array<{ signedUrl: string; signedHeaders?: Record<string, string> }>;
     };
 
     const resultFlags: boolean[] = [];
     for (let idx = 0; idx < items.length; idx += 1) {
       setItems((prev) => prev.map((x, i) => (i === idx ? { ...x, status: "uploading" } : x)));
       try {
-        await xhrUpload(signedItems[idx].signedUrl, items[idx].file, (progress) => {
+        await xhrUpload(signedItems[idx].signedUrl, items[idx].file, signedItems[idx].signedHeaders ?? {}, (progress) => {
           setItems((prev) => prev.map((x, i) => (i === idx ? { ...x, progress } : x)));
         });
         setItems((prev) => prev.map((x, i) => (i === idx ? { ...x, status: "done", progress: 100 } : x)));
