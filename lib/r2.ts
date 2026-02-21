@@ -8,7 +8,12 @@ import {
   type _Object
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { DOMParser as XmldomParser } from "@xmldom/xmldom";
 import { normalizePublicDomain } from "@/lib/utils";
+
+if (typeof globalThis.DOMParser === "undefined") {
+  (globalThis as { DOMParser?: typeof XmldomParser }).DOMParser = XmldomParser;
+}
 
 function required(name: string) {
   const value = process.env[name];
