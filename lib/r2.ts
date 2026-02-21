@@ -1,18 +1,40 @@
-import {
-  DeleteObjectsCommand,
-  GetObjectCommand,
-  HeadObjectCommand,
-  ListObjectsV2Command,
-  PutObjectCommand,
-  S3Client,
-  type _Object
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { DOMParser as XmldomParser } from "@xmldom/xmldom";
 import { normalizePublicDomain } from "@/lib/utils";
 
-if (typeof globalThis.DOMParser === "undefined") {
-  (globalThis as { DOMParser?: typeof XmldomParser }).DOMParser = XmldomParser;
+type S3ObjectLike = {
+  Key?: string;
+  Size?: number;
+  LastModified?: Date;
+};
+
+let domParserReady: Promise<void> | null = null;
+let s3SdkPromise: Promise<typeof import("@aws-sdk/client-s3")> | null = null;
+let presignerPromise: Promise<typeof import("@aws-sdk/s3-request-presigner")> | null = null;
+let clientPromise: Promise<unknown> | null = null;
+
+async function ensureDomParser() {
+  if (typeof globalThis.DOMParser !== "undefined") return;
+  if (!domParserReady) {
+    domParserReady = (async () => {
+      const { DOMParser } = await import("@xmldom/xmldom");
+      (globalThis as { DOMParser?: typeof DOMParser }).DOMParser = DOMParser;
+    })();
+  }
+  await domParserReady;
+}
+
+async function loadS3Sdk() {
+  await ensureDomParser();
+  if (!s3SdkPromise) {
+    s3SdkPromise = import("@aws-sdk/client-s3");
+  }
+  return s3SdkPromise;
+}
+
+async function loadPresigner() {
+  if (!presignerPromise) {
+    presignerPromise = import("@aws-sdk/s3-request-presigner");
+  }
+  return presignerPromise;
 }
 
 function required(name: string) {
@@ -36,16 +58,18 @@ function getConfig() {
   };
 }
 
-let client: S3Client | null = null;
-function getClient() {
-  if (client) return client;
-  const cfg = getConfig();
-  client = new S3Client({
-    region: "auto",
-    endpoint: `https://${cfg.accountId}.r2.cloudflarestorage.com`,
-    credentials: cfg.credentials
-  });
-  return client;
+async function getClient() {
+  if (clientPromise) return clientPromise;
+  clientPromise = (async () => {
+    const { S3Client } = await loadS3Sdk();
+    const cfg = getConfig();
+    return new S3Client({
+      region: "auto",
+      endpoint: `https://${cfg.accountId}.r2.cloudflarestorage.com`,
+      credentials: cfg.credentials
+    });
+  })();
+  return clientPromise;
 }
 
 export type ListedImage = {
@@ -83,7 +107,7 @@ function parseFolder(key: string) {
   return chunks[1] ?? null;
 }
 
-function objectToListed(obj: _Object, metadata: Record<string, string> | undefined, publicDomain: string): ListedImage {
+function objectToListed(obj: S3ObjectLike, metadata: Record<string, string> | undefined, publicDomain: string): ListedImage {
   const key = obj.Key ?? "";
   const filename = decodeMetadataValue(metadata?.originalname) || parseFilename(key);
   const tags = decodeMetadataValue(metadata?.tags)
@@ -116,6 +140,12 @@ export async function createPresignedPutUrl(input: {
   const encodedExif = encodeMetadataValue(input.exif ?? "");
   const encodedOriginalName = encodeMetadataValue(input.originalName);
 
+  const [{ PutObjectCommand }, { getSignedUrl }, r2] = await Promise.all([
+    loadS3Sdk(),
+    loadPresigner(),
+    getClient()
+  ]);
+
   const command = new PutObjectCommand({
     Bucket: cfg.bucketName,
     Key: input.key,
@@ -128,7 +158,7 @@ export async function createPresignedPutUrl(input: {
     }
   });
 
-  const signedUrl = await getSignedUrl(getClient(), command, { expiresIn: 60 });
+  const signedUrl = await getSignedUrl(r2 as never, command, { expiresIn: 60 });
   return {
     signedUrl,
     publicUrl: `${cfg.publicDomain}/${input.key}`
@@ -142,8 +172,8 @@ export async function listImages(input: {
   tag?: string;
 }) {
   const cfg = getConfig();
-  const r2 = getClient();
-  const listed = await r2.send(
+  const [{ ListObjectsV2Command, HeadObjectCommand }, r2] = await Promise.all([loadS3Sdk(), getClient()]);
+  const listed = await (r2 as { send: (cmd: unknown) => Promise<any> }).send(
     new ListObjectsV2Command({
       Bucket: cfg.bucketName,
       MaxKeys: input.limit,
@@ -151,12 +181,14 @@ export async function listImages(input: {
     })
   );
 
-  const objects = (listed.Contents ?? []).filter((obj) => Boolean(obj.Key));
+  const objects = (listed.Contents ?? []).filter((obj: S3ObjectLike) => Boolean(obj.Key));
 
   const enriched = await Promise.all(
-    objects.map(async (obj) => {
+    objects.map(async (obj: S3ObjectLike) => {
       const key = obj.Key!;
-      const head = await r2.send(new HeadObjectCommand({ Bucket: cfg.bucketName, Key: key }));
+      const head = await (r2 as { send: (cmd: unknown) => Promise<any> }).send(
+        new HeadObjectCommand({ Bucket: cfg.bucketName, Key: key })
+      );
       return objectToListed(obj, head.Metadata, cfg.publicDomain);
     })
   );
@@ -165,7 +197,7 @@ export async function listImages(input: {
     const matchSearch =
       !input.search ||
       img.filename.toLowerCase().includes(input.search.toLowerCase()) ||
-      img.tags.some((t) => t.toLowerCase().includes(input.search!.toLowerCase()));
+      img.tags.some((t: string) => t.toLowerCase().includes(input.search!.toLowerCase()));
     const matchTag = !input.tag || img.tags.includes(input.tag);
     return matchSearch && matchTag;
   });
@@ -182,8 +214,8 @@ export async function listImages(input: {
 export async function deleteImages(keys: string[]) {
   if (!keys.length) return;
   const cfg = getConfig();
-  const r2 = getClient();
-  await r2.send(
+  const [{ DeleteObjectsCommand }, r2] = await Promise.all([loadS3Sdk(), getClient()]);
+  await (r2 as { send: (cmd: unknown) => Promise<any> }).send(
     new DeleteObjectsCommand({
       Bucket: cfg.bucketName,
       Delete: {
@@ -207,9 +239,9 @@ async function streamToString(stream: unknown) {
 
 export async function getObjectText(key: string) {
   const cfg = getConfig();
-  const r2 = getClient();
+  const [{ GetObjectCommand }, r2] = await Promise.all([loadS3Sdk(), getClient()]);
   try {
-    const object = await r2.send(
+    const object = await (r2 as { send: (cmd: unknown) => Promise<any> }).send(
       new GetObjectCommand({
         Bucket: cfg.bucketName,
         Key: key
@@ -225,8 +257,8 @@ export async function getObjectText(key: string) {
 
 export async function putObjectText(key: string, value: string, contentType = "application/json") {
   const cfg = getConfig();
-  const r2 = getClient();
-  await r2.send(
+  const [{ PutObjectCommand }, r2] = await Promise.all([loadS3Sdk(), getClient()]);
+  await (r2 as { send: (cmd: unknown) => Promise<any> }).send(
     new PutObjectCommand({
       Bucket: cfg.bucketName,
       Key: key,
