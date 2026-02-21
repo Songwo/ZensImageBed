@@ -160,9 +160,13 @@ npm run dev
 1. Cloudflare -> `Workers & Pages` -> `Create application` -> `Pages` -> `Connect to Git`
 2. 选择本仓库
 3. 构建配置：
-- Build command: `npm run build`
-- Build output directory: `.next`
+- Build command: `npm run cf:build`
+- Build output directory: `.vercel/output/static`
 - Node.js: `20+`
+
+> 不要把输出目录设置为 `.next`。  
+> `.next/cache/webpack/*.pack` 可能超过 Cloudflare Pages 25 MiB 文件限制，出现：
+> `Pages only supports files up to 25 MiB in size`。
 
 ## 5.6 在 Pages 项目中配置环境变量
 
