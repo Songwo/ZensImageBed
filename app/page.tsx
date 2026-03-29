@@ -21,6 +21,7 @@ export default async function HomePage() {
             <>
               <Button asChild><Link href="/upload">进入上传台</Link></Button>
               <Button variant="outline" asChild><Link href="/gallery">打开图库</Link></Button>
+              <Button variant="outline" asChild><Link href="/settings/apikeys">API 密钥管理</Link></Button>
             </>
           ) : (
             <>

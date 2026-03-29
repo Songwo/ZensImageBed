@@ -17,7 +17,7 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname.startsWith("/api/auth/logout")) {
+  if (pathname.startsWith("/api/auth/logout") || pathname === "/api/upload/direct") {
     return NextResponse.next();
   }
 

@@ -213,25 +213,113 @@ Pages 项目 -> `Settings` -> `Environment variables`：
 
 ---
 
-## 8. 目录结构（核心）
+## 8. 外部 API 接口（供第三方应用调用）
+
+图床提供了一个直传接口，可让你的 Java/Python/Go 等后端程序直接上传图片，无需登录 session。
+
+### 8.1 接口认证
+
+使用 **API Key** 鉴权，在请求头中携带：
+
+```
+Authorization: Bearer <你的 API Key>
+```
+
+API Key 可在图床管理后台的 **「API 密钥」** 页面生成和管理（登录后侧边栏可见），也可直接在环境变量中设置静态 Key：
+
+```
+API_KEY=your_static_api_key
+```
+
+> 后台动态生成的 Key 优先级高于环境变量中的静态 Key。
+
+### 8.2 上传图片
+
+**`POST /api/upload/direct`**
+
+请求格式：`multipart/form-data`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|:----:|------|
+| `file` | File | ✓ | 图片文件 |
+| `tags` | String | | 逗号分隔标签，如 `blog,avatar` |
+| `folder` | String | | 存储目录，如 `posts` |
+
+响应示例：
+
+```json
+{
+  "key": "2026-03-29/posts/uuid-photo.jpg",
+  "url": "https://your-domain.com/2026-03-29/posts/uuid-photo.jpg",
+  "filename": "photo.jpg",
+  "size": 102400,
+  "remaining": 19
+}
+```
+
+错误码：`400` 参数错误 | `401` Key 无效 | `429` 频率限制
+
+### 8.3 Java 调用示例（OkHttp）
+
+```java
+MediaType MEDIA_TYPE = MediaType.parse("image/jpeg");
+
+RequestBody fileBody = RequestBody.create(new File("/path/to/photo.jpg"), MEDIA_TYPE);
+
+MultipartBody body = new MultipartBody.Builder()
+    .setType(MultipartBody.FORM)
+    .addFormDataPart("file", "photo.jpg", fileBody)
+    .addFormDataPart("tags", "blog,article")
+    .addFormDataPart("folder", "posts")
+    .build();
+
+Request request = new Request.Builder()
+    .url("https://your-imagebed.com/api/upload/direct")
+    .header("Authorization", "Bearer " + API_KEY)
+    .post(body)
+    .build();
+
+try (Response response = client.newCall(request).execute()) {
+    String json = response.body().string();
+    // 从 json 中取 "url" 字段即为图片公开访问地址
+}
+```
+
+### 8.4 curl 测试
+
+```bash
+curl -X POST https://your-imagebed.com/api/upload/direct \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "file=@/path/to/photo.jpg" \
+  -F "tags=test" \
+  -F "folder=demo"
+```
+
+---
+
+## 9. 目录结构（核心）
 
 ```text
 app/
   api/
     auth/login
     auth/logout
-    upload/presign
+    upload/presign      # 浏览器预签名直传
+    upload/direct       # 外部 API 直传（API Key 鉴权）
     images
     images/delete
     images/order
+    apikeys             # API Key 管理接口
   login/
   upload/
   gallery/
+  settings/apikeys/    # API Key 管理页面
 lib/
   auth.ts
   r2.ts
   order-store.ts
   rate-limit.ts
+  apikey-store.ts      # API Key 存储
 components/
   upload-panel.tsx
   gallery-panel.tsx

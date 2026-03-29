@@ -251,3 +251,36 @@ export async function putObjectText(key: string, value: string, contentType = "a
     throw new Error(`R2 put failed (${res.status})`);
   }
 }
+
+export async function directUpload(input: {
+  key: string;
+  contentType: string;
+  body: ArrayBuffer;
+  tags: string[];
+  folder?: string;
+  originalName: string;
+}) {
+  const cfg = getConfig();
+  const keyPath = encodeKey(input.key);
+
+  const res = await signedFetch(`${endpointBase()}/${keyPath}`, {
+    method: "PUT",
+    headers: {
+      "content-type": input.contentType || "application/octet-stream",
+      "x-amz-meta-tags": encodeMetadataValue(input.tags.join(",")),
+      "x-amz-meta-folder": encodeMetadataValue(input.folder ?? ""),
+      "x-amz-meta-exif": "",
+      "x-amz-meta-originalname": encodeMetadataValue(input.originalName)
+    },
+    body: input.body
+  });
+
+  if (!res.ok) {
+    throw new Error(`R2 direct upload failed (${res.status})`);
+  }
+
+  return {
+    key: input.key,
+    url: `${cfg.publicDomain}/${input.key}`
+  };
+}
