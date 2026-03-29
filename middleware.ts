@@ -1,8 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { verifySessionToken } from "@/lib/auth";
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization"
+};
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  if (req.method === "OPTIONS" && pathname.startsWith("/api")) {
+    return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+  }
   const isPublic =
     pathname === "/" ||
     pathname === "/login" ||

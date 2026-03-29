@@ -8,6 +8,13 @@
   一个面向个人/小团队的 Cloudflare R2 图床，支持登录保护、预签名直传、分组排序、批量管理。
 </p>
 
+<p align="center">
+  <a href="#8-外部-api-接口供第三方应用调用">📡 开放 API 接口</a> ·
+  <a href="#81-申领-api-key">申领 API Key</a> ·
+  <a href="#82-上传图片">接口文档</a> ·
+  <a href="#83-java-调用示例okhttp">Java 示例</a>
+</p>
+
 ---
 
 ## 1. 项目简介
@@ -23,6 +30,7 @@
 - 按时间分组（今天/本周/更早）并支持分组独立拖拽排序
 - 排序持久化到 Cloudflare KV（可回退 R2）
 - 深浅主题 + 现代化仪表盘风格
+- **开放 API 接口**：支持 API Key 鉴权，Java / Python / Go 等任意后端直接上传图片，一键申领密钥，适合博客、CMS 等场景
 
 ---
 
@@ -215,25 +223,29 @@ Pages 项目 -> `Settings` -> `Environment variables`：
 
 ## 8. 外部 API 接口（供第三方应用调用）
 
-图床提供了一个直传接口，可让你的 Java/Python/Go 等后端程序直接上传图片，无需登录 session。
+> ZensImage 提供开放的图片上传 API，任何后端语言（Java / Python / Go / PHP 等）都可以直接调用，无需浏览器 session，适合博客系统、CMS、自动化脚本等场景。
 
-### 8.1 接口认证
+### 8.1 申领 API Key
 
-使用 **API Key** 鉴权，在请求头中携带：
+**方式一：网页后台申领（推荐）**
 
-```
-Authorization: Bearer <你的 API Key>
-```
+1. 用管理员账号登录你的图床
+2. 点击顶部导航栏的 **「API 密钥」** 按钮，或直接访问 `/settings/apikeys`
+3. 填写 Key 名称（如「我的博客」），点击「创建」
+4. **立即复制完整 Key 保存**，关闭弹窗后仅显示前缀，无法再次查看
+5. 可随时删除某个 Key 来撤销其访问权限
 
-API Key 可在图床管理后台的 **「API 密钥」** 页面生成和管理（登录后侧边栏可见），也可直接在环境变量中设置静态 Key：
+**方式二：环境变量静态配置**
+
+在 Cloudflare Pages 环境变量中设置：
 
 ```
 API_KEY=your_static_api_key
 ```
 
-> 后台动态生成的 Key 优先级高于环境变量中的静态 Key。
+> 网页动态创建的 Key 和环境变量静态 Key 都有效，可同时使用。
 
-### 8.2 上传图片
+### 8.3 上传图片
 
 **`POST /api/upload/direct`**
 
@@ -259,7 +271,7 @@ API_KEY=your_static_api_key
 
 错误码：`400` 参数错误 | `401` Key 无效 | `429` 频率限制
 
-### 8.3 Java 调用示例（OkHttp）
+### 8.4 Java 调用示例（OkHttp）
 
 ```java
 MediaType MEDIA_TYPE = MediaType.parse("image/jpeg");
@@ -285,7 +297,60 @@ try (Response response = client.newCall(request).execute()) {
 }
 ```
 
-### 8.4 curl 测试
+### 8.5 Spring Boot 示例（RestTemplate）
+
+```java
+@Service
+public class ImageBedService {
+
+    private static final String UPLOAD_URL = "https://your-imagebed.com/api/upload/direct";
+    private static final String API_KEY = "zib_your_api_key_here";
+
+    public String uploadImage(MultipartFile file) throws Exception {
+        RestTemplate restTemplate = new RestTemplate();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        headers.set("Authorization", "Bearer " + API_KEY);
+
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", new MultipartInputStreamFileResource(
+            file.getInputStream(), file.getOriginalFilename()));
+        body.add("folder", "blog");
+
+        HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(body, headers);
+        ResponseEntity<Map> response = restTemplate.postForEntity(UPLOAD_URL, request, Map.class);
+
+        return (String) response.getBody().get("url"); // 返回公开访问地址
+    }
+}
+```
+
+### 8.6 Python 示例（requests）
+
+```python
+import requests
+
+API_KEY = "zib_your_api_key_here"
+UPLOAD_URL = "https://your-imagebed.com/api/upload/direct"
+
+def upload_image(file_path: str, folder: str = "", tags: str = "") -> str:
+    with open(file_path, "rb") as f:
+        resp = requests.post(
+            UPLOAD_URL,
+            headers={"Authorization": f"Bearer {API_KEY}"},
+            files={"file": f},
+            data={"folder": folder, "tags": tags},
+        )
+    resp.raise_for_status()
+    return resp.json()["url"]  # 返回公开访问地址
+
+# 使用示例
+url = upload_image("./photo.jpg", folder="blog", tags="python,demo")
+print(url)
+```
+
+### 8.7 curl 快速测试
 
 ```bash
 curl -X POST https://your-imagebed.com/api/upload/direct \
