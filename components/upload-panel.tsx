@@ -153,6 +153,7 @@ export function UploadPanel() {
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <Button variant="outline" onClick={() => router.push("/gallery")}>图库</Button>
+            <Button variant="outline" onClick={() => router.push("/settings/apikeys")}>API 密钥</Button>
             <Button variant="ghost" onClick={handleLogout}><LogOut className="mr-2 h-4 w-4" />退出</Button>
           </div>
         </header>

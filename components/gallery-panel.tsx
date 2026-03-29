@@ -307,6 +307,7 @@ export function GalleryPanel() {
           <h1 className="mr-auto font-heading text-2xl font-bold">图库管理</h1>
           <ThemeToggle />
           <Button variant="outline" onClick={() => (window.location.href = "/upload")}>上传</Button>
+          <Button variant="outline" onClick={() => (window.location.href = "/settings/apikeys")}>API 密钥</Button>
           <Button variant="ghost" onClick={onLogout}><LogOut className="mr-2 h-4 w-4" />退出</Button>
         </header>
 
