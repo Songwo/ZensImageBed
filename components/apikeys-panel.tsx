@@ -113,7 +113,7 @@ export function ApiKeysPanel() {
             <Button variant="ghost" size="sm" onClick={() => router.push("/upload")}>上传台</Button>
             <Button variant="ghost" size="sm" onClick={() => router.push("/gallery")}>图库</Button>
             <ThemeToggle />
-            <Button variant="ghost" size="icon" onClick={handleLogout} title="退出登录">
+            <Button variant="ghost" className="h-9 w-9 px-0" onClick={handleLogout} title="退出登录">
               <LogOut className="h-4 w-4" />
             </Button>
           </div>
@@ -198,8 +198,7 @@ export function ApiKeysPanel() {
                     </div>
                     <Button
                       variant="ghost"
-                      size="icon"
-                      className="ml-2 h-8 w-8 shrink-0 text-destructive hover:text-destructive"
+                      className="ml-2 h-8 w-8 shrink-0 px-0 text-destructive hover:text-destructive"
                       onClick={() => deleteMutation.mutate(k.id)}
                       disabled={deleteMutation.isPending}
                       title="删除"
