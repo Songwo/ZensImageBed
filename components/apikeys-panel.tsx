@@ -129,7 +129,7 @@ export function ApiKeysPanel() {
               <CardContent className="space-y-3">
                 <div className="flex items-center gap-2 rounded-lg border border-green-500/20 bg-background/80 px-3 py-2 font-mono text-sm">
                   <span className="flex-1 break-all">{newKey.key}</span>
-                  <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={() => copyKey(newKey.key)}>
+                  <Button variant="ghost" className="h-7 w-7 shrink-0 px-0" onClick={() => copyKey(newKey.key)}>
                     <Copy className="h-3.5 w-3.5" />
                   </Button>
                 </div>
